@@ -41,28 +41,6 @@ export default function App() {
     }
   }, [darkMode]);
 
-  // Load issues and current user profile on boot
-  useEffect(() => {
-    fetchIssues();
-    fetchUserProfile();
-  }, []);
-
-  // Synchronize comments whenever an issue is selected
-  useEffect(() => {
-    if (selectedIssue) {
-      fetchComments(selectedIssue.id);
-    } else {
-      setComments([]);
-    }
-  }, [selectedIssue]);
-
-  const showToast = (message: string, type: "success" | "info" = "success") => {
-    setNotification({ message, type });
-    setTimeout(() => {
-      setNotification(null);
-    }, 4500);
-  };
-
   const fetchIssues = async () => {
     try {
       const res = await fetch("/api/issues");
@@ -91,6 +69,26 @@ export default function App() {
     } catch (e) {
       console.error("Failed to load comments", e);
     }
+  };
+
+  // Load issues and current user profile on boot
+  useEffect(() => {
+    fetchIssues();
+    fetchUserProfile();
+  }, [currentUser.uid]);
+
+  // Synchronize comments whenever an issue is selected
+  useEffect(() => {
+    if (selectedIssue) {
+      fetchComments(selectedIssue.id);
+    }
+  }, [selectedIssue]);
+
+  const showToast = (message: string, type: "success" | "info" = "success") => {
+    setNotification({ message, type });
+    setTimeout(() => {
+      setNotification(null);
+    }, 4500);
   };
 
   // Upvote issue action

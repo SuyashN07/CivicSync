@@ -3,27 +3,20 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useRef, useEffect } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   MapPin,
   Search,
   Sliders,
-  Maximize2,
-  Minimize2,
   Layers,
   ThumbsUp,
-  MessageSquare,
-  AlertTriangle,
-  Clock,
   Send,
   Sparkles,
   CheckCircle,
-  Eye,
-  Camera
 } from "lucide-react";
 import { Issue, Comment, UserProfile } from "../types";
-import L from "leaflet";
+import MapComponent from "./MapComponent";
 
 interface RealTimeMapProps {
   issues: Issue[];
@@ -53,14 +46,6 @@ export default function RealTimeMap({
   const [zoomLevel, setZoomLevel] = useState(13);
   const [userGPSLocation, setUserGPSLocation] = useState<{ lat: number; lng: number } | null>(null);
 
-  // Map limits
-  const baseCenter = { lat: 37.7749, lng: -122.4194 }; // San Francisco
-
-  const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<L.Map | null>(null);
-  const markersLayerRef = useRef<L.LayerGroup | null>(null);
-  const tileLayerRef = useRef<L.TileLayer | null>(null);
-
   // Filter issues based on category and status
   const filteredIssues = useMemo(() => {
     return issues.filter((issue) => {
@@ -78,93 +63,13 @@ export default function RealTimeMap({
     });
   }, [issues, selectedCategory, selectedStatus, searchQuery]);
 
-  // Simulated clustering of markers if they are close in lat/lng coordinates
-  const clusteredItems = useMemo(() => {
-    const threshold = 0.005; // degree distance to cluster
-    const clusters: Array<{
-      id: string;
-      isCluster: boolean;
-      issues: Issue[];
-      lat: number;
-      lng: number;
-    }> = [];
-
-    filteredIssues.forEach((issue) => {
-      let foundCluster = false;
-      for (const cluster of clusters) {
-        const dist = Math.hypot(cluster.lat - issue.location.lat, cluster.lng - issue.location.lng);
-        if (dist < threshold) {
-          cluster.issues.push(issue);
-          cluster.isCluster = true;
-          cluster.lat = (cluster.lat * (cluster.issues.length - 1) + issue.location.lat) / cluster.issues.length;
-          cluster.lng = (cluster.lng * (cluster.issues.length - 1) + issue.location.lng) / cluster.issues.length;
-          foundCluster = true;
-          break;
-        }
-      }
-
-      if (!foundCluster) {
-        clusters.push({
-          id: `cluster-${issue.id}`,
-          isCluster: false,
-          issues: [issue],
-          lat: issue.location.lat,
-          lng: issue.location.lng,
-        });
-      }
-    });
-
-    return clusters;
-  }, [filteredIssues]);
-
-  // Initialize Leaflet Map
+  // Get live geolocation once on mount
   useEffect(() => {
-    if (!containerRef.current || mapRef.current) return;
-
-    // Create Leaflet map instance
-    const map = L.map(containerRef.current, {
-      center: [baseCenter.lat, baseCenter.lng],
-      zoom: zoomLevel,
-      zoomControl: false, // We render our own UI buttons!
-      attributionControl: false,
-    });
-
-    mapRef.current = map;
-
-    // Create marker group
-    const markersLayer = L.layerGroup().addTo(map);
-    markersLayerRef.current = markersLayer;
-
-    // Initialize Tile Layer
-    const tileLayer = L.tileLayer(
-      mapType === "street"
-        ? "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-        : "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-      {
-        maxZoom: 19,
-      }
-    ).addTo(map);
-    tileLayerRef.current = tileLayer;
-
-    // Update zoomLevel state on zoom events
-    map.on("zoomend", () => {
-      setZoomLevel(map.getZoom());
-    });
-
-    // Handle container resize dynamically to prevent Leaflet white/gray background rendering glitch
-    const resizeObserver = new ResizeObserver(() => {
-      map.invalidateSize();
-    });
-    resizeObserver.observe(containerRef.current);
-
-    // Get live geolocation and center the map
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (position) => {
           const { latitude, longitude } = position.coords;
-          console.log("RealTimeMap geolocation fetch success:", latitude, longitude);
           setUserGPSLocation({ lat: latitude, lng: longitude });
-          map.setView([latitude, longitude], 14);
         },
         (error) => {
           console.warn("RealTimeMap geolocation fetch failed or denied.", error);
@@ -172,139 +77,7 @@ export default function RealTimeMap({
         { enableHighAccuracy: true, timeout: 6000 }
       );
     }
-
-    // Cleanup on unmount
-    return () => {
-      resizeObserver.disconnect();
-      if (mapRef.current) {
-        mapRef.current.remove();
-        mapRef.current = null;
-      }
-    };
   }, []);
-
-  // Sync zoom level from external UI state changes
-  useEffect(() => {
-    if (mapRef.current && mapRef.current.getZoom() !== zoomLevel) {
-      mapRef.current.setZoom(zoomLevel);
-    }
-  }, [zoomLevel]);
-
-  // Handle map type changes (Street vs Satellite)
-  useEffect(() => {
-    if (!tileLayerRef.current) return;
-    const url =
-      mapType === "street"
-        ? "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-        : "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
-    tileLayerRef.current.setUrl(url);
-  }, [mapType]);
-
-  // Smoothly center map on selectedIssue when it changes
-  useEffect(() => {
-    if (selectedIssue && mapRef.current) {
-      mapRef.current.setView([selectedIssue.location.lat, selectedIssue.location.lng], 16, {
-        animate: true,
-        duration: 0.8,
-      });
-    }
-  }, [selectedIssue]);
-
-  // Dynamically update Leaflet markers based on filtered clusters and selectedIssue
-  useEffect(() => {
-    if (!markersLayerRef.current || !mapRef.current) return;
-
-    // Clear existing markers
-    markersLayerRef.current.clearLayers();
-
-    clusteredItems.forEach((cluster) => {
-      if (cluster.isCluster) {
-        // Render cluster marker
-        const count = cluster.issues.length;
-        const icon = L.divIcon({
-          html: `
-            <div class="relative flex items-center justify-center">
-              <div class="w-8 h-8 rounded-full bg-emerald-600 dark:bg-emerald-500 border-2 border-white dark:border-zinc-950 flex items-center justify-center shadow-lg text-white font-mono font-bold text-xs">
-                ${count}
-              </div>
-              <div class="absolute w-12 h-12 rounded-full border border-emerald-500/40 animate-ping opacity-25"></div>
-            </div>
-          `,
-          className: "custom-div-icon",
-          iconSize: [32, 32],
-          iconAnchor: [16, 16],
-        });
-
-        const marker = L.marker([cluster.lat, cluster.lng], { icon });
-        marker.on("click", () => {
-          if (mapRef.current) {
-            mapRef.current.setView([cluster.lat, cluster.lng], Math.min(mapRef.current.getZoom() + 1, 18));
-          }
-        });
-        marker.addTo(markersLayerRef.current!);
-      } else {
-        // Render single marker
-        const issue = cluster.issues[0];
-        const isSelected = selectedIssue?.id === issue.id;
-
-        const isPending = issue.status === "pending";
-        const isResolved = issue.status === "resolved";
-        const isVerified = issue.status === "verified";
-        
-        let colorClass = "bg-rose-500 border-rose-600 shadow-rose-500/30";
-        if (isResolved) colorClass = "bg-emerald-500 border-emerald-600 shadow-emerald-500/30";
-        if (isVerified) colorClass = "bg-amber-500 border-amber-600 shadow-amber-500/30";
-        
-        const categoryIcon = getCategoryIcon(issue.aiMetadata?.category);
-        const categoryLabel = issue.aiMetadata?.category || "Infrastructure issue";
-
-        const html = `
-          <div class="relative flex flex-col items-center select-none transform transition-all duration-300 ${
-            isSelected ? "scale-110 z-50" : "hover:scale-105"
-          }">
-            <div class="flex items-center space-x-1.5 px-3 py-1.5 rounded-full border-2 shadow-lg text-white font-sans ${colorClass}">
-              <span class="text-sm leading-none">${categoryIcon}</span>
-              <span class="text-[10px] font-mono font-bold tracking-tight uppercase whitespace-nowrap">${categoryLabel}</span>
-            </div>
-            <!-- Pin tail -->
-            <div class="w-2.5 h-2.5 -mt-[6px] rotate-45 border-r-2 border-b-2 bg-rose-500 border-rose-600 ${
-              isResolved ? "bg-emerald-500 border-emerald-600" : isVerified ? "bg-amber-500 border-amber-600" : ""
-            }"></div>
-          </div>
-        `;
-
-        const icon = L.divIcon({
-          html,
-          className: "custom-div-icon",
-          iconSize: [120, 44],
-          iconAnchor: [60, 40],
-        });
-
-        const marker = L.marker([issue.location.lat, issue.location.lng], { icon });
-        marker.on("click", () => {
-          onSelectIssue(isSelected ? null : issue);
-        });
-        marker.addTo(markersLayerRef.current!);
-      }
-    });
-
-    // Add high-contrast pulsing user GPS dot representing 'You are here'
-    if (userGPSLocation) {
-      const userIcon = L.divIcon({
-        html: `
-          <div class="relative flex items-center justify-center">
-            <div class="w-4.5 h-4.5 rounded-full bg-blue-500 border-2 border-white dark:border-zinc-950 shadow-lg z-50"></div>
-            <div class="absolute w-10 h-10 rounded-full bg-blue-500/30 animate-ping pointer-events-none"></div>
-          </div>
-        `,
-        className: "custom-div-icon",
-        iconSize: [40, 40],
-        iconAnchor: [20, 20],
-      });
-      const userMarker = L.marker([userGPSLocation.lat, userGPSLocation.lng], { icon: userIcon });
-      userMarker.addTo(markersLayerRef.current);
-    }
-  }, [clusteredItems, selectedIssue, userGPSLocation]);
 
   // Comment submission
   const handleSubmitComment = (e: React.FormEvent) => {
@@ -353,12 +126,22 @@ export default function RealTimeMap({
   return (
     <div className="w-full h-full flex flex-col md:flex-row relative bg-slate-50 dark:bg-zinc-950 overflow-hidden">
       
-      {/* MAP STAGE CONTAINER */}
-      <div
-        ref={containerRef}
-        className="flex-1 h-[400px] md:h-full relative overflow-hidden select-none transition-all duration-300 z-0 bg-[#f4f3f0]"
-        id="map-container"
-      >
+      {/* MAP STAGE WRAPPER */}
+      <div className="flex-1 h-[400px] md:h-full relative overflow-hidden z-0 bg-[#f4f3f0]">
+        
+        {/* GOOGLE MAPS COMPONENT */}
+        <div className="absolute inset-0 z-0">
+          <MapComponent
+            issues={filteredIssues}
+            selectedIssue={selectedIssue}
+            onSelectIssue={onSelectIssue}
+            userGPSLocation={userGPSLocation}
+            mapType={mapType}
+            zoomLevel={zoomLevel}
+            onZoomChange={setZoomLevel}
+          />
+        </div>
+
         {/* MAP OVERLAYS & SEARCH BAR (GLASSMORPHIC) */}
         <div className="absolute top-4 left-4 right-4 md:right-auto md:w-96 z-20 flex flex-col space-y-2 pointer-events-none">
           <div className="w-full bg-white/85 dark:bg-zinc-900/85 backdrop-blur-md border border-slate-200/50 dark:border-zinc-800/50 rounded-xl shadow-lg p-2.5 flex items-center space-x-2 pointer-events-auto map-control">

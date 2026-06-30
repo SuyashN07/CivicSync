@@ -157,19 +157,21 @@ export const DEFAULT_MOCK_USER = {
 };
 
 // Try importing or setting up real firebase if config is injected
+import firebaseConfig from "../../firebase-applet-config.json";
+import { signInWithPopup, GoogleAuthProvider, onAuthStateChanged, User, signOut } from "firebase/auth";
+
 let isRealFirebase = false;
 let firebaseApp: any = null;
 let dbInstance: any = null;
 let authInstance: any = null;
+let cachedAccessToken: string | null = null;
+let isSigningIn = false;
+const googleProvider = new GoogleAuthProvider();
+googleProvider.addScope("https://www.googleapis.com/auth/documents");
+googleProvider.addScope("https://www.googleapis.com/auth/drive.file");
 
 try {
-  // Check if firebase-applet-config.json exists or if process.env values are present
-  // For the sake of dynamic full-stack runtime, we attempt to resolve the config.
-  // Real implementation can import from a config path.
-  // Here, we provide an elegant interface.
-  const hasConfig = false; // We can check config or environment variables
-  if (hasConfig) {
-    const firebaseConfig = {}; // Placeholder
+  if (firebaseConfig && Object.keys(firebaseConfig).length > 0) {
     firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
     dbInstance = getFirestore(firebaseApp);
     authInstance = getAuth(firebaseApp);
@@ -179,6 +181,56 @@ try {
 } catch (e) {
   console.warn("Firebase config not found or invalid. Falling back to High-Fidelity Mock Sandbox Mode.", e);
 }
+
+export const initAuth = (
+  onAuthSuccess?: (user: User, token: string) => void,
+  onAuthFailure?: () => void
+) => {
+  if (!authInstance) return () => {};
+  return onAuthStateChanged(authInstance, async (user: User | null) => {
+    if (user) {
+      if (cachedAccessToken) {
+        if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken);
+      } else if (!isSigningIn) {
+        cachedAccessToken = null;
+        if (onAuthFailure) onAuthFailure();
+      }
+    } else {
+      cachedAccessToken = null;
+      if (onAuthFailure) onAuthFailure();
+    }
+  });
+};
+
+export const googleSignIn = async (): Promise<{ user: User; accessToken: string } | null> => {
+  if (!authInstance) return null;
+  try {
+    isSigningIn = true;
+    const result = await signInWithPopup(authInstance, googleProvider);
+    const credential = GoogleAuthProvider.credentialFromResult(result);
+    if (!credential?.accessToken) {
+      throw new Error('Failed to get access token from Firebase Auth');
+    }
+
+    cachedAccessToken = credential.accessToken;
+    return { user: result.user, accessToken: cachedAccessToken };
+  } catch (error: any) {
+    console.error('Sign in error:', error);
+    throw error;
+  } finally {
+    isSigningIn = false;
+  }
+};
+
+export const getAccessToken = async (): Promise<string | null> => {
+  return cachedAccessToken;
+};
+
+export const logout = async () => {
+  if (!authInstance) return;
+  await signOut(authInstance);
+  cachedAccessToken = null;
+};
 
 // Ensure local storage is seeded with initial data for the dashboard
 if (typeof window !== "undefined") {
@@ -238,20 +290,4 @@ export function handleFirestoreError(
   };
   console.error("Firestore Error: ", JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
-}
-
-// Test connection strictly matching the Firebase integration skill
-export async function testConnection() {
-  if (!isRealFirebase) return;
-  try {
-    await getDocFromServer(doc(db, "test", "connection"));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes("the client is offline")) {
-      console.error("Please check your Firebase configuration.");
-    }
-  }
-}
-
-if (isRealFirebase) {
-  testConnection();
 }

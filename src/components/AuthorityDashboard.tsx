@@ -30,9 +30,11 @@ import {
   Zap,
   Info,
   Loader2,
-  FileSpreadsheet
+  FileSpreadsheet,
+  FileText
 } from "lucide-react";
 import { Issue, UserProfile } from "../types";
+import { googleSignIn, getAccessToken, initAuth } from "../lib/firebase";
 
 interface AuthorityDashboardProps {
   issues: Issue[];
@@ -49,6 +51,18 @@ export default function AuthorityDashboard({ issues, onVerifyFix, currentUser }:
   const [afterImage, setAfterImage] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
   const [verificationResult, setVerificationResult] = useState<any>(null);
+
+  // Docs Export State
+  const [isExporting, setIsExporting] = useState(false);
+  const [docLink, setDocLink] = useState<string | null>(null);
+  const [needsAuth, setNeedsAuth] = useState(false);
+
+  useEffect(() => {
+    initAuth(
+      () => setNeedsAuth(false),
+      () => setNeedsAuth(true)
+    );
+  }, []);
 
   // Load predictions
   useEffect(() => {
@@ -111,6 +125,78 @@ export default function AuthorityDashboard({ issues, onVerifyFix, currentUser }:
     setAfterImage("https://images.unsplash.com/photo-1473163928189-364b2c4e1135?auto=format&fit=crop&q=80&w=600");
   };
 
+  const generateDocsReport = async () => {
+    setIsExporting(true);
+    setDocLink(null);
+    try {
+      let token = await getAccessToken();
+      if (!token) {
+        const result = await googleSignIn();
+        if (result) {
+          token = result.accessToken;
+          setNeedsAuth(false);
+        } else {
+          setIsExporting(false);
+          return;
+        }
+      }
+
+      // Create new document
+      const createRes = await fetch("https://docs.googleapis.com/v1/documents", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          title: `CivicSync Authority Report - ${new Date().toLocaleDateString()}`
+        })
+      });
+
+      const doc = await createRes.json();
+      if (!doc.documentId) throw new Error("Failed to create document");
+
+      // Generate Report Text
+      let reportText = `CivicSync Authority Report\nGenerated on: ${new Date().toLocaleString()}\n\n`;
+      reportText += `Total Open Tickets: ${activeTasks.length}\n`;
+      reportText += `Resolved This Week: ${issues.filter((i) => i.status === "resolved").length}\n\n`;
+      reportText += `--- PRIORITY HAZARDS ---\n\n`;
+      
+      prioritizedTasks.slice(0, 10).forEach((task) => {
+        reportText += `[${task.aiMetadata?.severity}/10] ${task.title}\n`;
+        reportText += `Category: ${task.aiMetadata?.category}\n`;
+        reportText += `Department: ${task.aiMetadata?.department}\n`;
+        reportText += `Address: ${task.location.address}\n\n`;
+      });
+
+      // Insert text into document
+      await fetch(`https://docs.googleapis.com/v1/documents/${doc.documentId}:batchUpdate`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          requests: [
+            {
+              insertText: {
+                location: { index: 1 },
+                text: reportText
+              }
+            }
+          ]
+        })
+      });
+
+      setDocLink(`https://docs.google.com/document/d/${doc.documentId}/edit`);
+    } catch (err) {
+      console.error("Failed to generate docs report", err);
+      alert("Failed to generate documentation. Please try again.");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
       
@@ -124,8 +210,31 @@ export default function AuthorityDashboard({ issues, onVerifyFix, currentUser }:
             Municipal Authority Officer Dashboard
           </h2>
         </div>
-        <div className="text-xs text-slate-400 dark:text-zinc-500 font-mono mt-1 md:mt-0">
-          ● Secure Session: Badge #{currentUser.uid.slice(0, 8).toUpperCase()}
+        <div className="flex flex-col items-end space-y-2 mt-2 md:mt-0">
+          <div className="text-xs text-slate-400 dark:text-zinc-500 font-mono">
+            ● Secure Session: Badge #{currentUser.uid.slice(0, 8).toUpperCase()}
+          </div>
+          <div className="flex items-center space-x-2">
+            {docLink ? (
+              <a 
+                href={docLink} 
+                target="_blank" 
+                rel="noreferrer"
+                className="flex items-center px-3 py-1.5 bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100 rounded-lg text-xs font-bold transition-colors"
+              >
+                <FileText className="w-3.5 h-3.5 mr-1.5" /> Open Report in Google Docs
+              </a>
+            ) : (
+              <button 
+                onClick={generateDocsReport}
+                disabled={isExporting}
+                className="flex items-center px-3 py-1.5 bg-white dark:bg-zinc-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-700 rounded-lg text-xs font-bold transition-colors disabled:opacity-50"
+              >
+                {isExporting ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <FileText className="w-3.5 h-3.5 mr-1.5" />}
+                {needsAuth ? "Sign in to Generate Docs Report" : "Generate Docs Report"}
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
