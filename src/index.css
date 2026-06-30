@@ -1,0 +1,44 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import url('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Space Grotesk", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+}
+
+@layer base {
+  body {
+    @apply font-sans antialiased;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Custom smooth animate pulse slow */
+.animate-spin-slow {
+  animation: spin 8s linear infinite;
+}
+
+.bg-sleek-grid {
+  background-color: #0b0f15;
+  background-image: 
+    linear-gradient(rgba(24, 24, 27, 0.8) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(24, 24, 27, 0.8) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+/* Leaflet Custom DivIcon Resets */
+.custom-div-icon {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+}

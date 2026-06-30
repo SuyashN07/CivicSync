@@ -1,0 +1,6 @@
+{
+  "name": "CivicSync",
+  "description": "Hyperlocal community problem solver with real-time issue tracking, gamified citizen feedback, and AI-powered routing and insights.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
